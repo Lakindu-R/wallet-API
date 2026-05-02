@@ -16,7 +16,8 @@ import (
 
 	_ "wallet-api/docs"
 	"wallet-api/handlers"
-	"wallet-api/middleware"
+	custommw "wallet-api/middleware"
+	"github.com/labstack/echo/v4/middleware"
 )
 
 func main() {
@@ -29,8 +30,10 @@ func main() {
 
 	e := echo.New()
 
-	e.Use(middleware.Logger)
-	e.Use(middleware.RateLimiter)
+	e.Use(custommw.Logger)
+	e.Use(middleware.CORS())
+	e.Use(custommw.RateLimiter)
+	
 
 	e.GET("/swagger/*", echoSwagger.WrapHandler)
 
