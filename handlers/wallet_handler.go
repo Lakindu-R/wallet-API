@@ -36,7 +36,9 @@ func CreateWallet(c echo.Context) error {
 		Transactions: []models.Transaction{},
 	}
 
-	store.Wallet[id] = wallet
+	if err := store.SaveWallet(*wallet); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to save wallet"})
+	}
 	return c.JSON(http.StatusOK, wallet)
 }
 
@@ -51,9 +53,11 @@ func CreateWallet(c echo.Context) error {
 func GetWallet(c echo.Context) error {
 	id := c.Param("id")
 
-	wallet, exsist := store.Wallet[id]
-	if !exsist {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "Wallet not found"})
+	wallet, err := store.GetWallet(id)
+	if err != nil {
+		return c.JSON(404, map[string]string{
+			"error": "wallet not found",
+		})
 	}
 
 	return c.JSON(http.StatusOK, wallet)
@@ -73,8 +77,8 @@ func GetWallet(c echo.Context) error {
 func AddTransaction(c echo.Context) error {
 	id := c.Param("id")
 
-	wallet, exist := store.Wallet[id]
-	if !exist {
+	wallet, err := store.GetWallet(id)
+	if err != nil {
 		return c.JSON(http.StatusNotFound, map[string]string{
 			"error": "Wallet Not Found",
 		})
@@ -114,6 +118,9 @@ func AddTransaction(c echo.Context) error {
 
 	wallet.Transactions = append(wallet.Transactions, tx)
 
+	if err := store.SaveWallet(*wallet); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to save transaction"})
+	}
 	return c.JSON(http.StatusOK, wallet)
 }
 
@@ -130,8 +137,8 @@ func AddTransaction(c echo.Context) error {
 func GetTransactions(c echo.Context) error {
 	id := c.Param("id")
 
-	wallet, exists := store.Wallet[id]
-	if !exists {
+	wallet, err := store.GetWallet(id)
+	if err != nil {
 		return c.JSON(http.StatusNotFound, map[string]string{
 			"error": "Wallet not found",
 		})

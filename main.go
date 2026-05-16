@@ -16,12 +16,14 @@ import (
 
 	_ "wallet-api/docs"
 	"wallet-api/handlers"
+	"wallet-api/store"
 	custommw "wallet-api/middleware"
 	"github.com/labstack/echo/v4/middleware"
 )
 
 func main() {
 	godotenv.Load()
+	store.InitDB()
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -33,6 +35,7 @@ func main() {
 	e.Use(custommw.Logger)
 	e.Use(middleware.CORS())
 	e.Use(custommw.RateLimiter)
+	
 	
 
 	e.GET("/swagger/*", echoSwagger.WrapHandler)
