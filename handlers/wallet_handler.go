@@ -1,13 +1,13 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
-	"wallet-api/store"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
-
+	"wallet-api/config"
 	"wallet-api/models"
 )
 
@@ -36,8 +36,19 @@ func CreateWallet(c echo.Context) error {
 		Transactions: []models.Transaction{},
 	}
 
-	if err := store.SaveWallet(*wallet); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to save wallet"})
+	walletJSON, _ := json.Marshal(wallet)
+
+	err := config.RedisClient.Set(
+		config.Ctx,
+		"wallet:"+wallet.ID,
+		walletJSON,
+		0,
+	).Err()
+
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to save wallet",
+		})
 	}
 	return c.JSON(http.StatusOK, wallet)
 }
@@ -53,12 +64,18 @@ func CreateWallet(c echo.Context) error {
 func GetWallet(c echo.Context) error {
 	id := c.Param("id")
 
-	wallet, err := store.GetWallet(id)
+	result, err := config.RedisClient.Get(
+		config.Ctx,
+		"wallet:"+id,
+	).Result()
+
 	if err != nil {
-		return c.JSON(404, map[string]string{
-			"error": "wallet not found",
-		})
+		return err
 	}
+
+	var wallet models.Wallet
+
+	json.Unmarshal([]byte(result), &wallet)
 
 	return c.JSON(http.StatusOK, wallet)
 }
@@ -77,14 +94,21 @@ func GetWallet(c echo.Context) error {
 func AddTransaction(c echo.Context) error {
 	id := c.Param("id")
 
-	wallet, err := store.GetWallet(id)
+	result, err := config.RedisClient.Get(
+		config.Ctx,
+		"wallet:"+id,
+	).Result()
+
 	if err != nil {
 		return c.JSON(http.StatusNotFound, map[string]string{
 			"error": "Wallet Not Found",
 		})
 	}
 
-	var input struct {
+	var wallet models.Wallet
+	json.Unmarshal([]byte(result), &wallet)
+
+ 	var input struct {
 		Type   string  `json:"type"`
 		Amount float64 `json:"amount"`
 	}
@@ -95,7 +119,7 @@ func AddTransaction(c echo.Context) error {
 		})
 	}
 
-	if input.Type == "credit" {
+ 	if input.Type == "credit" {
 		wallet.Balance += input.Amount
 	} else if input.Type == "debit" {
 		if wallet.Balance < input.Amount {
@@ -110,7 +134,7 @@ func AddTransaction(c echo.Context) error {
 		})
 	}
 
-	tx := models.Transaction{
+ 	tx := models.Transaction{
 		ID:     uuid.New().String(),
 		Type:   input.Type,
 		Amount: input.Amount,
@@ -118,9 +142,29 @@ func AddTransaction(c echo.Context) error {
 
 	wallet.Transactions = append(wallet.Transactions, tx)
 
-	if err := store.SaveWallet(*wallet); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to save transaction"})
+	txJSON, _ := json.Marshal(tx)
+
+	config.RedisClient.RPush(
+		config.Ctx,
+		"transactions:"+id,
+		txJSON,
+	)
+
+	walletJSON, _ := json.Marshal(wallet)
+
+	err = config.RedisClient.Set(
+		config.Ctx,
+		"wallet:"+id,
+		walletJSON,
+		0,
+	).Err()
+
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to save transaction",
+		})
 	}
+
 	return c.JSON(http.StatusOK, wallet)
 }
 
@@ -137,7 +181,12 @@ func AddTransaction(c echo.Context) error {
 func GetTransactions(c echo.Context) error {
 	id := c.Param("id")
 
-	wallet, err := store.GetWallet(id)
+	// check wallet exists (optional but good)
+	_, err := config.RedisClient.Get(
+		config.Ctx,
+		"wallet:"+id,
+	).Result()
+
 	if err != nil {
 		return c.JSON(http.StatusNotFound, map[string]string{
 			"error": "Wallet not found",
@@ -150,16 +199,29 @@ func GetTransactions(c echo.Context) error {
 	if limit == 0 {
 		limit = 5
 	}
-	start := offset
-	end := offset + limit
 
-	if start > len(wallet.Transactions) {
-		start = len(wallet.Transactions)
+	// 🔥 Redis pagination using LRange
+	result, err := config.RedisClient.LRange(
+		config.Ctx,
+		"transactions:"+id,
+		int64(offset),
+		int64(offset+limit-1),
+	).Result()
+
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to fetch transactions",
+		})
 	}
 
-	if end > len(wallet.Transactions) {
-		end = len(wallet.Transactions)
+	// convert JSON strings → structs
+	var transactions []models.Transaction
+
+	for _, item := range result {
+		var tx models.Transaction
+		json.Unmarshal([]byte(item), &tx)
+		transactions = append(transactions, tx)
 	}
 
-	return c.JSON(http.StatusOK, wallet.Transactions[start:end])
+	return c.JSON(http.StatusOK, transactions)
 }
