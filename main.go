@@ -18,14 +18,12 @@ import (
 	"wallet-api/handlers"
 	"wallet-api/config"
 	custommw "wallet-api/middleware"
-	"wallet-api/store"
 
 	"github.com/labstack/echo/v4/middleware"
 )
 
 func main() {
 	godotenv.Load()
-	store.InitDB()
 	config.ConnectRedis()
 
 	port := os.Getenv("PORT")
